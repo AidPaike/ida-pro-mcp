@@ -29,6 +29,32 @@ Use modern `ida_*` modules. Avoid legacy `idc` module.
 
 ## Core Patterns
 
+## MCP Dynamic Debugging
+
+When debugger tools are available through the `dbg` MCP extension, prefer using
+them to drive a live IDA debug session instead of only writing IDAPython scripts.
+
+Recommended loop for agent-driven debugging:
+
+1. Call `dbg_diagnose()` to confirm the selected debugger, process options, and
+   remote debugger reachability.
+2. Start or attach with `dbg_start_process_until_event(...)`,
+   `dbg_start_current_file_until_event(...)`, or
+   `dbg_attach_process_until_event(pid)`.
+3. Use `dbg_get_snapshot()` after every stop to inspect IP, nearby disassembly,
+   registers, stack trace, and active breakpoints.
+4. Use `dbg_add_temp_bp_and_continue(addr)` or
+   `dbg_continue_until_event(timeout_ms)` to drive execution to the next
+   relevant state.
+5. Use `dbg_read`, `dbg_write`, and `dbg_read_around` for live process memory.
+
+For interactive CLI targets, use `dbg_pty_start`, `dbg_pty_send`, and
+`dbg_pty_read` to capture stdin/stdout/stderr, then attach IDA to the returned
+PID when instruction-level debugging is needed.
+
+Use IDAPython snippets for analysis helpers, type fixes, and batch edits. Use
+MCP debugger tools for live execution, waits, breakpoints, and runtime state.
+
 ### Iterate functions
 ```python
 for ea in idautils.Functions():
@@ -129,10 +155,13 @@ ida_auto.auto_wait()  # Block until autoanalysis completes
 
 ## Critical Rules
 
-1. **NEVER convert hex/decimal manually** — use `int_convert` MCP tool
+1. **NEVER convert hex/decimal manually** - use `int_convert` MCP tool
 2. **Wait for analysis**: Call `ida_auto.auto_wait()` before reading results
 3. **Thread safety**: IDA SDK calls must run on main thread (use `@idasync`)
 4. **64-bit addresses**: Always assume `ea_t` can be 64-bit
+5. **Live debugging**: Prefer MCP `dbg_*_until_event` and `dbg_pty_*` tools for
+   dynamic execution instead of generating scripts that cannot observe runtime
+   state.
 
 ## Anti-Patterns
 

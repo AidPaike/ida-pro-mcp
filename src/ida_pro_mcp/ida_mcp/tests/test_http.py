@@ -1,8 +1,8 @@
 """Tests for tool registration (@unsafe, @ext) and extension gating.
 
 Tests exercise the real MCP_UNSAFE set, MCP_EXTENSIONS dict, and
-MCP_SERVER.tools.methods registry — all populated by actual decorator
-execution at import time.  No mocks.
+MCP_SERVER.tools.methods registry, all populated by actual decorator execution
+at import time.  No mocks.
 
 Unsafe *removal* tests (simulating idalib --unsafe gating) live in
 test_server.py; tests here focus on the decorator sets, extension
@@ -26,7 +26,7 @@ def test_unsafe_set_includes_all_expected_categories():
     assert "py_exec_file" in MCP_UNSAFE
     assert "diff_before_after" in MCP_UNSAFE
     dbg_tools = {n for n in MCP_UNSAFE if n.startswith("dbg_")}
-    assert len(dbg_tools) >= 15, f"Expected ≥15 dbg_ unsafe tools, got {len(dbg_tools)}"
+    assert len(dbg_tools) >= 15, f"Expected >=15 dbg_ unsafe tools, got {len(dbg_tools)}"
 
 
 @test()
@@ -44,7 +44,7 @@ def test_unsafe_tools_are_disjoint_from_safe_core():
 
 @test()
 def test_dbg_extension_group_exists_and_populated():
-    """@ext('dbg') decorators should create a 'dbg' group with ≥15 tools."""
+    """@ext('dbg') decorators should create a populated 'dbg' group."""
     assert "dbg" in MCP_EXTENSIONS, "No 'dbg' extension group registered"
     assert len(MCP_EXTENSIONS["dbg"]) >= 15
     for name in {

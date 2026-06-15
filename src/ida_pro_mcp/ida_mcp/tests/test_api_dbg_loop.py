@@ -2,9 +2,25 @@
 
 import queue
 import subprocess
+import time
 
 from ..framework import test, assert_shape
 from .. import api_dbg_loop
+
+
+class _SavedAttr:
+    def __init__(self, obj, name, value):
+        self.obj = obj
+        self.name = name
+        self.value = value
+        self.old = getattr(obj, name)
+
+    def __enter__(self):
+        setattr(self.obj, self.name, self.value)
+        return self
+
+    def __exit__(self, *_args):
+        setattr(self.obj, self.name, self.old)
 
 
 @test()
@@ -37,6 +53,45 @@ def test_dbg_loop_event_buffer_returns_events_after_cursor():
         api_dbg_loop._EVENT_BUF.extend(old_events)
         api_dbg_loop._EVENT_SEQ = old_seq
         api_dbg_loop._DBG_HOOKS = old_hooks
+
+
+@test()
+def test_dbg_loop_wait_uses_nonblocking_polling():
+    """_wait_for_events_after must respect timeout even when no event arrives."""
+    old_seq = api_dbg_loop._EVENT_SEQ
+    old_events = list(api_dbg_loop._EVENT_BUF)
+    calls = []
+
+    def wait_for_next_event(flags, timeout):
+        calls.append((flags, timeout))
+        return 0
+
+    try:
+        api_dbg_loop._EVENT_BUF.clear()
+        api_dbg_loop._EVENT_SEQ = 0
+        start = time.monotonic()
+        with (
+            _SavedAttr(api_dbg_loop.ida_dbg, "wait_for_next_event", wait_for_next_event),
+            _SavedAttr(
+                api_dbg_loop.ida_dbg,
+                "get_process_state",
+                lambda: api_dbg_loop.ida_dbg.DSTATE_RUN,
+            ),
+            _SavedAttr(api_dbg_loop, "_WAIT_POLL_INTERVAL_MS", 1),
+        ):
+            events = api_dbg_loop._wait_for_events_after(0, 10)
+        elapsed_ms = (time.monotonic() - start) * 1000
+
+        assert events == []
+        assert calls
+        assert elapsed_ms < 250
+        assert all(timeout == 0 for _flags, timeout in calls)
+        nowait = getattr(api_dbg_loop.ida_dbg, "WFNE_NOWAIT", 0)
+        assert nowait == 0 or all(flags & nowait for flags, _timeout in calls)
+    finally:
+        api_dbg_loop._EVENT_BUF.clear()
+        api_dbg_loop._EVENT_BUF.extend(old_events)
+        api_dbg_loop._EVENT_SEQ = old_seq
 
 
 @test()

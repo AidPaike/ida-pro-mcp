@@ -301,46 +301,113 @@ Debugger tools are hidden by default. Enable with `?ext=dbg` query parameter:
 http://127.0.0.1:13337/mcp?ext=dbg
 ```
 
-**Control:**
-- `dbg_start()`: Start debugger process.
-- `dbg_exit()`: Exit debugger process.
-- `dbg_continue()`: Continue execution.
-- `dbg_continue_until_event(timeout_ms)`: Continue execution and wait for the next debugger event or timeout.
-- `dbg_start_process_until_event(path, args, start_dir, timeout_ms)`: Start a debugger process through MCP and wait for debugger state/event.
-- `dbg_start_current_file_until_event(timeout_ms)`: Start the currently loaded input file through MCP and wait for debugger state/event.
-- `dbg_attach_process_until_event(pid, timeout_ms)`: Attach to a running process through MCP and wait for debugger state/event.
-- `dbg_run_to(addr)`: Run to address.
-- `dbg_step_into()`: Step into instruction.
-- `dbg_step_over()`: Step over instruction.
-- `dbg_add_temp_bp_and_continue(addr, timeout_ms)`: Set a temporary breakpoint, continue, and wait for an event.
+When using the stdio proxy, pass `--ida-rpc http://127.0.0.1:13337?ext=dbg` so the
+proxy forwards every request with the extension enabled.
 
-**Agent Debug Loop:**
-- `dbg_loop_init()`: Initialize MCP-driven debugger polling and return the current event cursor.
-- `dbg_wait_event(cursor, timeout_ms)`: Use MCP to wait for a debugger event without resuming execution.
-- `dbg_get_events(cursor, limit)`: Read events produced by prior MCP wait/continue calls.
-- `dbg_get_snapshot(disasm_radius, include_registers, include_stack)`: Return current IP, function, nearby disassembly, GP registers, stack trace, and breakpoints.
-- `dbg_diagnose(include_process_list)`: Diagnose debugger readiness, process options, selected debugger, and likely next steps without starting or attaching.
+The debugger extension is intended for live analysis, not just "generate a
+Python script and hope it works". An MCP client can start or attach IDA's
+debugger, continue execution, wait for the next stop, inspect registers/memory,
+read CLI output, and decide the next action from the returned snapshot.
+
+There are three complementary debugger APIs:
+
+1. **One-shot control** (`api_debug.py`): `dbg_start`, `dbg_continue`,
+   `dbg_step_into`, `dbg_run_to`, etc. Each call performs a single action and
+   returns immediately. Useful when you already know the next step.
+2. **Event-loop control** (`api_dbg_loop.py`): wait/continue primitives that
+   drive the debugger, block until the state changes, and return a structured
+   snapshot. Designed for LLM agents that decide the next action based on the
+   current state.
+3. **CLI I/O sessions** (`dbg_pty_*`): start an interactive command-line target
+   outside IDA, capture stdin/stdout/stderr through MCP, then attach IDA to the
+   returned PID. This is useful for crackmes and services where debugger console
+   I/O is unreliable.
+
+### One-shot control
+
+- `dbg_start()`: Start debugger session for the current target.
+- `dbg_exit()`: Exit debugger session.
+- `dbg_continue()`: Resume execution.
+- `dbg_run_to(addr)`: Run until an address is reached.
+- `dbg_step_into()`: Execute one instruction, stepping into calls.
+- `dbg_step_over()`: Execute one instruction, stepping over calls.
+
+### Event-loop control
+
+- `dbg_loop_init()`: Initialize debugger event capture and return the current
+  event cursor.
+- `dbg_wait_event(cursor, timeout_ms)`: Wait for a debugger event without
+  resuming execution.
+- `dbg_continue_until_event(timeout_ms)`: Resume execution and wait for the
+  next debugger event or timeout.
+- `dbg_start_process_until_event(path, args, start_dir, timeout_ms)`: Start a
+  debugger process and wait for the startup event.
+- `dbg_start_current_file_until_event(timeout_ms)`: Start the currently loaded
+  input file and wait for the startup event.
+- `dbg_attach_process_until_event(pid, timeout_ms)`: Attach to a running
+  process and wait for the attach event.
+- `dbg_add_temp_bp_and_continue(addr, timeout_ms)`: Set a temporary breakpoint,
+  resume, and wait for the hit.
+- `dbg_get_snapshot(disasm_radius, include_registers, include_stack)`: Return
+  IP, function, nearby disassembly, GP registers, stack trace, and breakpoints.
+- `dbg_get_events(cursor, limit)`: Read events captured by prior debugger
+  wait/continue calls.
+- `dbg_diagnose(include_process_list)`: Check debugger readiness, process
+  options, and likely next steps without starting anything.
 - `dbg_get_process_options()`: Return IDA debugger launch options.
-- `dbg_set_process_options(path, args, start_dir, hostname, password, port)`: Update IDA debugger launch options through MCP.
+- `dbg_set_process_options(path, args, start_dir, hostname, password, port)`:
+  Update IDA debugger launch options.
 - `dbg_list_processes()`: List processes visible to the selected debugger.
 - `dbg_modules()`: List loaded modules with base addresses.
-- `dbg_resolve(name)`: Resolve a symbol or address in the debugger address space.
-- `dbg_read_around(addr, radius)`: Read memory around an address as hex/ASCII chunks.
+- `dbg_resolve(name)`: Resolve a symbol or address in the debugger address
+  space.
+- `dbg_read_around(addr, radius)`: Read memory around an address as hex/ASCII
+  chunks.
 
-**Interactive CLI I/O:**
-- `dbg_pty_start(path, args, start_dir)`: Start a CLI process and capture stdin/stdout/stderr; returns PID for IDA attach.
+### Interactive CLI I/O
+
+`dbg_pty_*` tools let you start a command-line target outside IDA, capture its
+stdin/stdout/stderr, and later attach IDA's debugger to the returned PID. This
+is the most reliable way to debug interactive CLI crackmes because the target
+runs in a normal subprocess rather than relying on IDA's debugger for I/O.
+
+These sessions are local to the IDA machine. For a remote Linux target, start
+the service on the remote host, use `dbg_set_process_options` to point IDA at
+the remote debugger server, then use `dbg_attach_process_until_event(pid)` or
+the one-shot attach flow.
+
+- `dbg_pty_start(path, args, start_dir)`: Start a CLI process and return its
+  PID and session ID.
 - `dbg_pty_send(session_id, data, is_hex)`: Send input to the process stdin.
-- `dbg_pty_read(session_id, max_bytes, timeout_ms, separate_streams, encode)`: Read stdout/stderr from the process.
+- `dbg_pty_read(session_id, max_bytes, timeout_ms, separate_streams, encode)`:
+  Read stdout/stderr from the process.
 - `dbg_pty_list()`: List active CLI sessions.
 - `dbg_pty_close(session_id)`: Close a CLI session and terminate the process.
 
-**Breakpoints:**
+Typical CLI workflow:
+
+```text
+1. dbg_pty_start(path="/path/to/crackme", args="flag.txt")
+   -> {session_id, pid}
+2. (optionally) attach IDA debugger to pid
+3. dbg_pty_read(session_id, timeout_ms=500)
+   -> "Enter password:"
+4. dbg_pty_send(session_id, data="guess\n")
+5. dbg_pty_read(session_id, timeout_ms=500)
+   -> "Wrong/Right"
+6. dbg_pty_close(session_id)
+```
+
+### Breakpoints
+
 - `dbg_bps()`: List all breakpoints.
 - `dbg_add_bp(addrs)`: Add breakpoint(s).
 - `dbg_delete_bp(addrs)`: Delete breakpoint(s).
 - `dbg_toggle_bp(items)`: Enable/disable breakpoint(s).
+- `dbg_set_bp_condition(items)`: Set or clear breakpoint conditions.
 
-**Registers:**
+### Registers and Memory
+
 - `dbg_regs()`: All registers, current thread.
 - `dbg_regs_all()`: All registers, all threads.
 - `dbg_regs_remote(tids)`: All registers, specific thread(s).
@@ -348,8 +415,6 @@ http://127.0.0.1:13337/mcp?ext=dbg
 - `dbg_gpregs_remote(tids)`: GP registers, specific thread(s).
 - `dbg_regs_named(names)`: Named registers, current thread.
 - `dbg_regs_named_remote(tid, names)`: Named registers, specific thread.
-
-**Stack & Memory:**
 - `dbg_stacktrace()`: Call stack with module/symbol info.
 - `dbg_read(regions)`: Read memory from debugged process.
 - `dbg_write(regions)`: Write memory to debugged process.

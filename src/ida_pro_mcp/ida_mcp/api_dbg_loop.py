@@ -159,6 +159,7 @@ _EVENT_SEQ = 0
 _EVENT_LOCK = threading.Lock()
 _TEMP_BREAKPOINTS: set[int] = set()
 _DBG_HOOKS: "MCPDbgHooks | None" = None
+_WAIT_POLL_INTERVAL_MS = 50
 
 GENERAL_PURPOSE_REGISTERS = {
     "EAX",
@@ -431,6 +432,22 @@ def _wait_flags() -> int:
     return ida_dbg.WFNE_ANY | ida_dbg.WFNE_SUSP | ida_dbg.WFNE_SILENT
 
 
+def _poll_next_debug_event(remaining_ms: int) -> int:
+    """Poll one debugger event without letting debugger plugins overrun our deadline."""
+    nowait = getattr(ida_dbg, "WFNE_NOWAIT", 0)
+    wait_result = ida_dbg.wait_for_next_event(
+        _wait_flags() | nowait,
+        0,
+    )
+    if wait_result and wait_result > 0:
+        return wait_result
+
+    sleep_ms = min(_WAIT_POLL_INTERVAL_MS, max(remaining_ms, 0))
+    if sleep_ms > 0:
+        time.sleep(sleep_ms / 1000.0)
+    return wait_result
+
+
 def _debug_event_kind() -> str:
     state = _process_state_name()
     if state == "suspended":
@@ -596,7 +613,7 @@ def _wait_for_events_after(cursor: int, timeout_ms: int) -> list[DebugLoopEvent]
         remaining_ms = int((deadline - time.monotonic()) * 1000)
         if remaining_ms <= 0:
             return events
-        wait_result = ida_dbg.wait_for_next_event(_wait_flags(), min(100, remaining_ms))
+        wait_result = _poll_next_debug_event(remaining_ms)
         events = _copy_events_after(cursor, 100)
         if events and ida_dbg.get_process_state() != ida_dbg.DSTATE_RUN:
             return events
@@ -622,7 +639,7 @@ def _wait_for_debugger_state_change(timeout_ms: int) -> list[DebugLoopEvent]:
         remaining_ms = int((deadline - time.monotonic()) * 1000)
         if remaining_ms <= 0:
             return []
-        wait_result = ida_dbg.wait_for_next_event(_wait_flags(), min(100, remaining_ms))
+        wait_result = _poll_next_debug_event(remaining_ms)
         if wait_result and wait_result > 0:
             _record_wait_event(wait_result)
             return _copy_events_after(cursor, 100)

@@ -47,6 +47,30 @@ def test_dbg_extension_group_exists_and_populated():
     """@ext('dbg') decorators should create a 'dbg' group with ≥15 tools."""
     assert "dbg" in MCP_EXTENSIONS, "No 'dbg' extension group registered"
     assert len(MCP_EXTENSIONS["dbg"]) >= 15
+    for name in {
+        "dbg_loop_init",
+        "dbg_get_events",
+        "dbg_wait_event",
+        "dbg_get_snapshot",
+        "dbg_diagnose",
+        "dbg_get_process_options",
+        "dbg_set_process_options",
+        "dbg_list_processes",
+        "dbg_modules",
+        "dbg_resolve",
+        "dbg_pty_start",
+        "dbg_pty_send",
+        "dbg_pty_read",
+        "dbg_pty_list",
+        "dbg_pty_close",
+        "dbg_start_process_until_event",
+        "dbg_start_current_file_until_event",
+        "dbg_attach_process_until_event",
+        "dbg_continue_until_event",
+        "dbg_add_temp_bp_and_continue",
+        "dbg_read_around",
+    }:
+        assert name in MCP_EXTENSIONS["dbg"]
 
 
 @test()

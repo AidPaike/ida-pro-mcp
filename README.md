@@ -305,9 +305,34 @@ http://127.0.0.1:13337/mcp?ext=dbg
 - `dbg_start()`: Start debugger process.
 - `dbg_exit()`: Exit debugger process.
 - `dbg_continue()`: Continue execution.
+- `dbg_continue_until_event(timeout_ms)`: Continue execution and wait for the next debugger event or timeout.
+- `dbg_start_process_until_event(path, args, start_dir, timeout_ms)`: Start a debugger process through MCP and wait for debugger state/event.
+- `dbg_start_current_file_until_event(timeout_ms)`: Start the currently loaded input file through MCP and wait for debugger state/event.
+- `dbg_attach_process_until_event(pid, timeout_ms)`: Attach to a running process through MCP and wait for debugger state/event.
 - `dbg_run_to(addr)`: Run to address.
 - `dbg_step_into()`: Step into instruction.
 - `dbg_step_over()`: Step over instruction.
+- `dbg_add_temp_bp_and_continue(addr, timeout_ms)`: Set a temporary breakpoint, continue, and wait for an event.
+
+**Agent Debug Loop:**
+- `dbg_loop_init()`: Initialize MCP-driven debugger polling and return the current event cursor.
+- `dbg_wait_event(cursor, timeout_ms)`: Use MCP to wait for a debugger event without resuming execution.
+- `dbg_get_events(cursor, limit)`: Read events produced by prior MCP wait/continue calls.
+- `dbg_get_snapshot(disasm_radius, include_registers, include_stack)`: Return current IP, function, nearby disassembly, GP registers, stack trace, and breakpoints.
+- `dbg_diagnose(include_process_list)`: Diagnose debugger readiness, process options, selected debugger, and likely next steps without starting or attaching.
+- `dbg_get_process_options()`: Return IDA debugger launch options.
+- `dbg_set_process_options(path, args, start_dir, hostname, password, port)`: Update IDA debugger launch options through MCP.
+- `dbg_list_processes()`: List processes visible to the selected debugger.
+- `dbg_modules()`: List loaded modules with base addresses.
+- `dbg_resolve(name)`: Resolve a symbol or address in the debugger address space.
+- `dbg_read_around(addr, radius)`: Read memory around an address as hex/ASCII chunks.
+
+**Interactive CLI I/O:**
+- `dbg_pty_start(path, args, start_dir)`: Start a CLI process and capture stdin/stdout/stderr; returns PID for IDA attach.
+- `dbg_pty_send(session_id, data, is_hex)`: Send input to the process stdin.
+- `dbg_pty_read(session_id, max_bytes, timeout_ms, separate_streams, encode)`: Read stdout/stderr from the process.
+- `dbg_pty_list()`: List active CLI sessions.
+- `dbg_pty_close(session_id)`: Close a CLI session and terminate the process.
 
 **Breakpoints:**
 - `dbg_bps()`: List all breakpoints.

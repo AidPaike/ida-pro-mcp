@@ -32,6 +32,7 @@ from . import api_types
 from . import api_modify
 from . import api_stack
 from . import api_debug
+from . import api_dbg_loop
 from . import api_python
 from . import api_resources
 from . import api_survey
@@ -61,6 +62,7 @@ __all__ = [
     "api_modify",
     "api_stack",
     "api_debug",
+    "api_dbg_loop",
     "api_python",
     "api_resources",
     "api_survey",

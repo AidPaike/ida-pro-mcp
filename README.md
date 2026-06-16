@@ -69,7 +69,7 @@ If you want to configure the MCP server manually from the IDA GUI:
 
 ```sh
 pip uninstall ida-pro-mcp
-pip install https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip
+pip install https://github.com/AidPaike/ida-pro-mcp/archive/refs/heads/main.zip
 ```
 
 Configure the MCP servers and install the IDA Plugin:
@@ -307,15 +307,17 @@ proxy forwards every request with the extension enabled.
 The debugger extension is intended for live analysis, not just "generate a
 Python script and hope it works". An MCP client can start or attach IDA's
 debugger, continue execution, wait for the next stop, inspect registers/memory,
-read CLI output, and decide the next action from the returned snapshot.
+read CLI output, and decide the next action from the returned snapshot. The
+event-loop tools are driven by MCP calls and `ida_dbg.wait_for_next_event`; they
+do not install IDA debugger hooks or require an out-of-band controller.
 
 There are three complementary debugger APIs:
 
 1. **One-shot control** (`api_debug.py`): `dbg_start`, `dbg_continue`,
    `dbg_step_into`, `dbg_run_to`, etc. Each call performs a single action and
    returns immediately. Useful when you already know the next step.
-2. **Event-loop control** (`api_dbg_loop.py`): wait/continue primitives that
-   drive the debugger, block until the state changes, and return a structured
+2. **Event-loop control** (`api_dbg_loop.py`): MCP polling primitives that drive
+   the debugger, block until the state changes, and return a structured
    snapshot. Designed for LLM agents that decide the next action based on the
    current state.
 3. **CLI I/O sessions** (`dbg_pty_*`): start an interactive command-line target
@@ -334,8 +336,7 @@ There are three complementary debugger APIs:
 
 ### Event-loop control
 
-- `dbg_loop_init()`: Initialize debugger event capture and return the current
-  event cursor.
+- `dbg_loop_init()`: Return the current MCP debugger event cursor.
 - `dbg_wait_event(cursor, timeout_ms)`: Wait for a debugger event without
   resuming execution.
 - `dbg_continue_until_event(timeout_ms)`: Resume execution and wait for the

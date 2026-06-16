@@ -4,11 +4,9 @@ These tools sit above the low-level dbg_* controls. Each tool call actively
 drives IDA's debugger through MCP, waits for the debugger state to change, and
 returns a compact snapshot that is useful for deciding the next action.
 
-Events are captured in two ways:
-1. An installed ``ida_dbg.DBG_Hooks`` instance records process lifecycle,
-   breakpoints, exceptions, and trace events into a persistent ring buffer.
-2. Wait/continue loops record the ``wait_for_next_event`` result when no hook
-   event has already been emitted for the current state change.
+Events are produced by MCP wait/continue calls. The implementation does not
+install debugger hooks; every state transition is driven by a tool call that
+waits with ``ida_dbg.wait_for_next_event`` and records the observed state.
 """
 
 import os
@@ -158,7 +156,6 @@ _EVENT_BUF: deque[DebugLoopEvent] = deque(maxlen=1000)
 _EVENT_SEQ = 0
 _EVENT_LOCK = threading.Lock()
 _TEMP_BREAKPOINTS: set[int] = set()
-_DBG_HOOKS: "MCPDbgHooks | None" = None
 _WAIT_POLL_INTERVAL_MS = 50
 
 GENERAL_PURPOSE_REGISTERS = {
@@ -224,203 +221,50 @@ def _current_cursor() -> int:
 
 
 # ============================================================================
-# DBG_Hooks-based event capture
-# ============================================================================
-
-
-class MCPDbgHooks(ida_dbg.DBG_Hooks):
-    """Capture debugger events into the MCP event buffer.
-
-    These callbacks run on the IDA main thread when the debugger plugin
-    dispatches events. They complement the wait/continue polling loops by
-    recording details (e.g., breakpoint address, exception code) that are not
-    preserved by ``wait_for_next_event`` alone.
-    """
-
-    def dbg_process_start(self, pid, tid, ea, name, base, size):
-        _emit_event(
-            "process_start",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            name=str(name) if name else None,
-            base=_hex_or_none(base),
-            size=int(size) if size is not None else None,
-        )
-        return 0
-
-    def dbg_process_exit(self, pid, tid, ea, exit_code):
-        _emit_event(
-            "process_exit",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            code=int(exit_code),
-        )
-        return 0
-
-    def dbg_process_attach(self, pid, tid, ea, name, base, size):
-        _emit_event(
-            "process_attach",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            name=str(name) if name else None,
-            base=_hex_or_none(base),
-            size=int(size) if size is not None else None,
-        )
-        return 0
-
-    def dbg_process_detach(self, pid, tid, ea):
-        _emit_event(
-            "process_detach",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-        )
-        return 0
-
-    def dbg_library_load(self, pid, tid, ea, name, base, size):
-        _emit_event(
-            "library_load",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            name=str(name) if name else None,
-            base=_hex_or_none(base),
-            size=int(size) if size is not None else None,
-        )
-        return 0
-
-    def dbg_library_unload(self, pid, tid, ea, info):
-        _emit_event(
-            "library_unload",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            info=str(info) if info else None,
-        )
-        return 0
-
-    def dbg_bpt(self, tid, bptea):
-        _emit_event(
-            "breakpoint",
-            tid=int(tid),
-            ea=_hex_or_none(bptea),
-        )
-        return 0
-
-    def dbg_exception(self, pid, tid, ea, exc_code, exc_can_cont, exc_ea, exc_info):
-        _emit_event(
-            "exception",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-            exc_code=_hex_or_none(exc_code),
-            exc_ea=_hex_or_none(exc_ea),
-            exc_info=str(exc_info) if exc_info else None,
-            can_continue=bool(exc_can_cont),
-        )
-        return 0
-
-    def dbg_trace(self, tid, ip):
-        _emit_event(
-            "trace",
-            tid=int(tid),
-            ip=_hex_or_none(ip),
-        )
-        return 0
-
-    def dbg_suspend(self, pid, tid, ea):
-        _emit_event(
-            "suspend",
-            pid=int(pid),
-            tid=int(tid),
-            ea=_hex_or_none(ea),
-        )
-        return 0
-
-
-def _install_dbg_hooks() -> None:
-    """Install (or re-install) the persistent MCP debug event hooks."""
-    global _DBG_HOOKS
-    if _DBG_HOOKS is not None:
-        try:
-            _DBG_HOOKS.unhook()
-        except Exception:
-            pass
-    _DBG_HOOKS = MCPDbgHooks()
-    _DBG_HOOKS.hook()
-
-
-# ============================================================================
 # Batch-mode lifecycle helpers for start/attach
 # ============================================================================
 
 _DBG_START_BATCH_FALLBACK_MS = 30_000
 
 
-class _DbgStartBatchHook(ida_dbg.DBG_Hooks):
-    """Restore batch mode as soon as the debugger has finished STARTUP.
+_dbg_start_batch_restore_token = 0
+_dbg_start_batch_restore_value: int | None = None
 
-    ``start_process`` and ``attach_process`` schedule work that runs on the IDA
-    main thread *after* the synchronized tool body returns. That work can show
-    modal dialogs (e.g., "matching executable names"), so we keep batch mode on
-    across the ``execute_sync`` boundary and restore it once the debugger has
-    actually come up (or failed). This mirrors the implementation in
-    ``api_debug.py``.
-    """
 
-    def __init__(self, restore_batch: int):
-        super().__init__()
-        self._restore_batch = restore_batch
-        self._done = False
+def _debugger_start_has_settled() -> bool:
+    if not ida_dbg.is_debugger_on():
+        return False
+    state = ida_dbg.get_process_state()
+    return state in (ida_dbg.DSTATE_SUSP, ida_dbg.DSTATE_RUN, ida_dbg.DSTATE_NOTASK)
 
-    def _restore(self):
-        if self._done:
-            return
-        self._done = True
+
+def _schedule_dbg_start_batch_restore(restore_batch: int) -> None:
+    """Restore batch mode after start/attach settles, using polling only."""
+    global _dbg_start_batch_restore_token, _dbg_start_batch_restore_value
+    if _dbg_start_batch_restore_value is not None:
+        idc.batch(_dbg_start_batch_restore_value)
+
+    _dbg_start_batch_restore_token += 1
+    token = _dbg_start_batch_restore_token
+    _dbg_start_batch_restore_value = restore_batch
+    deadline = time.monotonic() + _DBG_START_BATCH_FALLBACK_MS / 1000.0
+
+    def _poll():
+        global _dbg_start_batch_restore_value
+        if token != _dbg_start_batch_restore_token:
+            return -1
         try:
-            self.unhook()
+            settled = _debugger_start_has_settled()
         except Exception:
-            pass
-        idc.batch(self._restore_batch)
+            settled = False
+        if settled or time.monotonic() >= deadline:
+            idc.batch(restore_batch)
+            if token == _dbg_start_batch_restore_token:
+                _dbg_start_batch_restore_value = None
+            return -1
+        return 100
 
-    def dbg_process_start(self, pid, tid, ea, name, base, size):
-        self._restore()
-
-    def dbg_process_attach(self, pid, tid, ea, name, base, size):
-        self._restore()
-
-    def dbg_process_exit(self, pid, tid, ea, exit_code):
-        self._restore()
-
-    def dbg_process_detach(self, pid, tid, ea):
-        self._restore()
-
-    def fallback_restore(self):
-        """Called by the safety timer if no debugger event ever arrives."""
-        self._restore()
-
-
-_dbg_start_batch_hook: _DbgStartBatchHook | None = None
-
-
-def _arm_dbg_start_batch_hook(restore_batch: int) -> None:
-    """Install the batch-restore hook before start_process/attach_process."""
-    global _dbg_start_batch_hook
-    if _dbg_start_batch_hook is not None:
-        _dbg_start_batch_hook.fallback_restore()
-    hook = _DbgStartBatchHook(restore_batch)
-    hook.hook()
-    _dbg_start_batch_hook = hook
-
-    def _fallback():
-        if _dbg_start_batch_hook is hook and not hook._done:
-            hook.fallback_restore()
-        return -1
-
-    ida_kernwin.register_timer(_DBG_START_BATCH_FALLBACK_MS, _fallback)
+    ida_kernwin.register_timer(100, _poll)
 
 
 # ============================================================================
@@ -800,7 +644,7 @@ def _start_process_until_event(
     pre_call_batch = get_pre_call_batch()
     if pre_call_batch is None:
         pre_call_batch = 0
-    _arm_dbg_start_batch_hook(restore_batch=pre_call_batch)
+    _schedule_dbg_start_batch_restore(restore_batch=pre_call_batch)
 
     result = ida_dbg.start_process(path or None, args or None, start_dir or None)
     if result == 0:
@@ -828,7 +672,7 @@ def _attach_process_until_event(
     pre_call_batch = get_pre_call_batch()
     if pre_call_batch is None:
         pre_call_batch = 0
-    _arm_dbg_start_batch_hook(restore_batch=pre_call_batch)
+    _schedule_dbg_start_batch_restore(restore_batch=pre_call_batch)
 
     result = ida_dbg.attach_process(pid, event_id)
     if result == 0:
@@ -888,7 +732,6 @@ def _disasm_context(ip: int, radius: int) -> list[DebugLoopDisasmLine]:
 @idasync
 def dbg_loop_init() -> dict[str, int | bool]:
     """Initialize MCP-driven debugger polling and return the event cursor."""
-    _install_dbg_hooks()
     return {"ok": True, "cursor": _current_cursor()}
 
 

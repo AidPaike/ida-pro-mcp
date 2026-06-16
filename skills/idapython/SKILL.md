@@ -33,6 +33,9 @@ Use modern `ida_*` modules. Avoid legacy `idc` module.
 
 When debugger tools are available through the `dbg` MCP extension, prefer using
 them to drive a live IDA debug session instead of only writing IDAPython scripts.
+The event-loop debugger tools are MCP polling calls built around IDA debugger
+actions and `wait_for_next_event`; do not install debugger hooks or rely on an
+out-of-band controller for dynamic execution.
 
 Recommended loop for agent-driven debugging:
 

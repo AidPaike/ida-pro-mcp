@@ -351,17 +351,17 @@ input[type="submit"]:hover {
         cors_options = [
             (
                 "unrestricted",
-                "⛔ Unrestricted",
+                "Unrestricted",
                 "Any website can make requests to this server. A malicious site you visit could access or modify your IDA database.",
             ),
             (
                 "local",
-                "🏠 Local apps only",
+                "Local apps only",
                 "Only web apps running on localhost can connect. Remote websites are blocked, but local development tools work.",
             ),
             (
                 "direct",
-                "🔒 Direct connections only",
+                "Direct connections only",
                 "Browser-based requests are blocked. Only direct clients like curl, MCP tools, or Claude Desktop can connect.",
             ),
         ]
@@ -372,8 +372,8 @@ input[type="submit"]:hover {
 
         quick_select = """<p style="font-size: 0.9rem; margin: 0.5rem 0;">
   Select:
-  <a href="#" onclick="setTools('all'); return false;">All</a> ·
-  <a href="#" onclick="setTools('none'); return false;">None</a> ·
+  <a href="#" onclick="setTools('all'); return false;">All</a> |
+  <a href="#" onclick="setTools('none'); return false;">None</a> |
   <a href="#" onclick="setTools('disable-unsafe'); return false;">Disable unsafe</a>
 </p>"""
 
@@ -388,7 +388,7 @@ input[type="submit"]:hover {
             description = (
                 (func.__doc__ or "No description").strip().splitlines()[0].strip()
             )
-            unsafe_prefix = "⚠️ " if name in MCP_UNSAFE else ""
+            unsafe_prefix = "[unsafe] " if name in MCP_UNSAFE else ""
             checked = " checked" if name in self.mcp_server.tools.methods else ""
             unsafe_attr = " data-unsafe" if name in MCP_UNSAFE else ""
             body += f"<label><input type='checkbox' name='{html.escape(name)}' value='{html.escape(name)}'{checked}{unsafe_attr} data-tool>{unsafe_prefix}{html.escape(name)}: {html.escape(description)}</label>"

@@ -1,490 +1,430 @@
 # IDA Pro MCP
 
-Simple [MCP Server](https://modelcontextprotocol.io/introduction) to allow vibe reversing in IDA Pro.
+[English](README.md) | [中文](README.zh.md)
 
-https://github.com/user-attachments/assets/6ebeaa92-a9db-43fa-b756-eececce2aca0
+A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes IDA Pro / idalib to MCP clients. Use it for AI-assisted reverse engineering: inspect decompilation, add comments, rename symbols, search patterns, control the debugger, and more.
 
-The binaries and prompt for the video are available in the [mcp-reversing-dataset](https://github.com/mrexodia/mcp-reversing-dataset) repository.
+This repository provides two complementary servers:
 
-## Prerequisites
+- **`ida-pro-mcp`** — stdio/HTTP proxy that connects to a running IDA Pro GUI instance via the bundled IDA plugin.
+- **`idalib-mcp`** — headless supervisor that spawns per-database `idalib` worker processes, so you can analyze binaries without opening the IDA GUI.
 
-- [Python](https://www.python.org/downloads/) (**3.11 or higher**)
-  - Use `idapyswitch` to switch to the newest Python version
-- [IDA Pro](https://hex-rays.com/ida-pro) (8.3 or higher, 9 recommended), **IDA Free is not supported**
-- Supported MCP Client (pick one you like)
-  - [Amazon Q Developer CLI](https://aws.amazon.com/q/developer/)
-  - [Augment Code](https://www.augmentcode.com/)
-  - [Claude](https://claude.ai/download)
-  - [Claude Code](https://www.anthropic.com/code)
-  - [Cline](https://cline.bot)
-  - [Codex](https://github.com/openai/codex)
-  - [Copilot CLI](https://docs.github.com/en/copilot)
-  - [Crush](https://github.com/charmbracelet/crush)
-  - [Cursor](https://cursor.com)
-  - [Gemini CLI](https://google-gemini.github.io/gemini-cli/)
-  - [Kilo Code](https://kilo.ai/)
-  - [Kiro](https://kiro.dev/)
-  - [LM Studio](https://lmstudio.ai/)
-  - [Opencode](https://opencode.ai/)
-  - [Qodo Gen](https://www.qodo.ai/)
-  - [Qwen Coder](https://qwenlm.github.io/qwen-code-docs/)
-  - [Roo Code](https://roocode.com)
-  - [Trae](https://trae.ai/)
-  - [VS Code](https://code.visualstudio.com/)
-  - [VS Code Insiders](https://code.visualstudio.com/insiders)
-  - [Warp](https://www.warp.dev/)
-  - [Windsurf](https://windsurf.com)
-  - [Zed](https://zed.dev/)
-  - [Other MCP Clients](https://modelcontextprotocol.io/clients#example-clients): Run `ida-pro-mcp --config` to get the JSON config for your client.
+## Table of Contents
 
-## Installation (Claude Code)
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Transports](#transports)
+- [Tool Reference](#tool-reference)
+- [Debugger Extension](#debugger-extension)
+- [MCP Resources](#mcp-resources)
+- [Prompt Engineering](#prompt-engineering)
+- [Development](#development)
 
-To install the headless IDA Pro MCP in Claude Code:
+## Overview
 
-```bash
-claude plugin marketplace add mrexodia/claude-marketplace
-claude plugin install ida-pro-mcp@mrexodia
-```
+### `ida-pro-mcp` (GUI mode)
 
-To update to the latest version:
+Installs an IDA Pro plugin (`Edit → Plugins → MCP` or `Ctrl-Alt-M`). When the plugin starts an HTTP server, `ida-pro-mcp` auto-discovers it and proxies MCP requests from your client into IDA.
 
-```bash
-claude plugin update ida-pro-mcp@mrexodia
-```
+Typical flow:
 
-**Note**: This requires having idalib activated globally and [uv](https://astral.sh/uv) installed:
+1. Open a binary in IDA Pro.
+2. Start the MCP plugin (it can autostart).
+3. Configure your MCP client to run `ida-pro-mcp`.
+4. Ask the LLM to analyze the database.
 
-```bash
-# windows
-uv run "C:\Program Files\IDA Professional 9.3\idalib\python\py-activate-idalib.py"
-# macos
-uv run "/Applications/IDA Professional 9.3.app/Contents/MacOS/idalib/python/py-activate-idalib.py"
-```
+### `idalib-mcp` (headless mode)
 
-## Installation (GUI)
-
-**Note**: the MCP plugin is no longer recommended and will eventually be deprecated. Use `idalib-mcp` instead.
-
-If you want to configure the MCP server manually from the IDA GUI:
-
-```sh
-pip uninstall ida-pro-mcp
-pip install https://github.com/AidPaike/ida-pro-mcp/archive/refs/heads/main.zip
-```
-
-Configure the MCP servers and install the IDA Plugin:
-
-```
-ida-pro-mcp --install
-```
-
-**Important**: Make sure you completely restart IDA and your MCP client for the installation to take effect. Some clients (like Claude) run in the background and need to be quit from the tray icon.
-
-## Prompt Engineering
-
-LLMs are prone to hallucinations and you need to be specific with your prompting. For reverse engineering the conversion between integers and bytes are especially problematic. Below is a minimal example prompt, feel free to start a discussion or open an issue if you have good results with a different prompt:
-
-```md
-Your task is to analyze a crackme in IDA Pro. You can use the MCP tools to retrieve information. In general use the following strategy:
-
-- Inspect the decompilation and add comments with your findings
-- Rename variables to more sensible names
-- Change the variable and argument types if necessary (especially pointer and array types)
-- Change function names to be more descriptive
-- If more details are necessary, disassemble the function and add comments with your findings
-- NEVER convert number bases yourself. Use the `int_convert` MCP tool if needed!
-- Do not attempt brute forcing, derive any solutions purely from the disassembly and simple python scripts
-- Create a report.md with your findings and steps taken at the end
-- When you find a solution, prompt to user for feedback with the password you found
-```
-
-This prompt was just the first experiment, please share if you found ways to improve the output!
-
-Another prompt by [@can1357](https://github.com/can1357):
-
-```md
-Your task is to create a complete and comprehensive reverse engineering analysis. Reference AGENTS.md to understand the project goals and ensure the analysis serves our purposes.
-
-Use the following systematic methodology:
-
-1. **Decompilation Analysis**
-   - Thoroughly inspect the decompiler output
-   - Add detailed comments documenting your findings
-   - Focus on understanding the actual functionality and purpose of each component (do not rely on old, incorrect comments)
-
-2. **Improve Readability in the Database**
-   - Rename variables to sensible, descriptive names
-   - Correct variable and argument types where necessary (especially pointers and array types)
-   - Update function names to be descriptive of their actual purpose
-
-3. **Deep Dive When Needed**
-   - If more details are necessary, examine the disassembly and add comments with findings
-   - Document any low-level behaviors that aren't clear from the decompilation alone
-   - Use sub-agents to perform detailed analysis
-
-4. **Important Constraints**
-   - NEVER convert number bases yourself - use the int_convert MCP tool if needed
-   - Use MCP tools to retrieve information as necessary
-   - Derive all conclusions from actual analysis, not assumptions
-
-5. **Documentation**
-   - Produce comprehensive RE/*.md files with your findings
-   - Document the steps taken and methodology used
-   - When asked by the user, ensure accuracy over previous analysis file
-   - Organize findings in a way that serves the project goals outlined in AGENTS.md or CLAUDE.md
-```
-
-Live stream discussing prompting and showing some real-world malware analysis:
-
-[![](https://img.youtube.com/vi/iFxNuk3kxhk/0.jpg)](https://www.youtube.com/watch?v=iFxNuk3kxhk)
-
-## Tips for Enhancing LLM Accuracy
-
-Large Language Models (LLMs) are powerful tools, but they can sometimes struggle with complex mathematical calculations or exhibit "hallucinations" (making up facts). Make sure to tell the LLM to use the `int_convert` MCP tool and you might also need [math-mcp](https://github.com/EthanHenrickson/math-mcp) for certain operations.
-
-Another thing to keep in mind is that LLMs will not perform well on obfuscated code. Before trying to use an LLM to solve the problem, take a look around the binary and spend some time (automatically) removing the following things:
-
-- String encryption
-- Import hashing
-- Control flow flattening
-- Code encryption
-- Anti-decompilation tricks
-
-You should also use a tool like Lumina or FLIRT to try and resolve all the open source library code and the C++ STL, this will further improve the accuracy.
-
-## Transports & Headless MCP
-
-You can run an SSE server to connect to the user interface like this:
-
-```sh
-uv run ida-pro-mcp --transport http://127.0.0.1:8744/sse
-```
-
-After installing [`idalib`](https://docs.hex-rays.com/core/idalib/getting-started) you can also run a headless MCP server. You can start with an initial binary:
-
-```sh
-uv run idalib-mcp --host 127.0.0.1 --port 8745 path/to/executable
-```
-
-Or start without a binary and open arbitrary files later with `idb_open(...)`:
-
-```sh
-uv run idalib-mcp --host 127.0.0.1 --port 8745
-```
-
-For stdio-based clients, use:
-
-```sh
-uv run idalib-mcp --stdio
-```
-
-Database workers are persistent: each one runs as a detached process that
-outlives the supervisor that spawned it. When a new supervisor (over stdio
-or HTTP) calls `idb_open` for a binary that is already open under a worker
-on this host, the supervisor adopts that worker transparently — there is
-no separate "shared" mode to enable. Workers self-exit when no request has
-hit them for an idle interval.
-
-_Note_: The `idalib` feature was contributed by [Willi Ballenthin](https://github.com/williballenthin).
-
-## Headless idalib Session Model
-
-`idalib-mcp` is a supervisor that keeps each open database in its own idalib worker process. Workers register themselves in a host-local discovery directory and outlive the supervisor that spawned them; any subsequent supervisor that wants the same path adopts the running worker. A worker self-exits when no request has hit it for its idle TTL (default 1 hour). There is no `idb_close` tool — clients that no longer care about a database simply stop using it, and only the user can close a GUI window.
-
-`idb_open` picks the backend via its `mode` parameter:
-
-- `prefer_headless` (default): spawn an idalib worker (or adopt one that already has the file open).
-- `force_headless`: same, but never adopt a running GUI even if one has the file.
-- `prefer_gui`: adopt a running GUI for the file; otherwise spawn an idalib worker.
-- `force_gui`: adopt a running GUI for the file; otherwise launch a new IDA GUI process.
-
-Every tool call must carry an explicit `database` argument. There is no implicit "current database" — callers name the session they want to operate on.
-
-```sh
-uv run idalib-mcp --stdio --max-workers 4
-```
+Runs a supervisor that keeps each open database in its own `idalib` worker process. Workers register themselves locally and outlive the supervisor; a new supervisor adopting the same path reuses the running worker. Workers self-exit after an idle TTL (default 1 hour).
 
 Typical flow:
 
 ```python
-idb_open("/path/to/binary_a.exe", preferred_session_id="binary_a")
-idb_open("/path/to/library.dll", preferred_session_id="library")
-
+idb_open("/path/to/binary.exe", preferred_session_id="binary_a")
 decompile("main", database="binary_a")
-xrefs_to("ImportantExport", database="library")
+xrefs_to("ImportantExport", database="binary_a")
 ```
 
-`database` must be the session ID returned by `idb_open` (or shown in `idb_list`); filenames and paths are not accepted.
+Every headless tool call must include a `database` argument naming the session returned by `idb_open` (or listed by `idb_list`).
 
-### Management tools
+## Prerequisites
 
-- `idb_open(input_path, mode="prefer_headless", run_auto_analysis=True, build_caches=True, init_hexrays=True, preferred_session_id="")`: Open a binary, warm up subsystems (strings cache, Hex-Rays), and return its session ID. If a worker or GUI for this path is already running on the host, that instance is adopted and `preferred_session_id` is ignored.
-- `idb_list()`: List open sessions and running GUI IDA instances. Each entry has `adopted` (True if this supervisor manages it, False for GUIs/workers discovered but not yet opened via `idb_open`), `backend` (`worker` or `gui`), `is_active`, and process IDs.
-- `idb_save(session_id, path="")`: Save a session's IDB to disk. Forwarded as a regular worker tool (`database=<id>` injected) — same signature in both backends.
-- Per-database health: call `server_health(database=<id>)` (forwarded). `idb_list()` reports `is_active` from the supervisor's TCP/RPC probe.
+- [Python](https://www.python.org/downloads/) **3.11 or higher**
+  - Use `idapyswitch` to point IDA at the newest Python version if needed.
+- [IDA Pro](https://hex-rays.com/ida-pro) **8.3 or higher**, **9.0+ recommended**
+  - **IDA Free is not supported.**
+- [uv](https://astral.sh/uv) (recommended for running from source)
+- A supported MCP client (see `--list-clients`)
 
-Worker controls:
+## Installation
 
-- `--max-workers N`: maximum simultaneous database workers (`0` = unlimited, default `4`).
-- `IDA_MCP_MAX_WORKERS`: environment default for `--max-workers`.
+### From source
 
-
-## MCP Resources
-
-**Resources** represent browsable state (read-only data) following MCP's philosophy.
-
-**Core IDB State:**
-- `ida://idb/metadata` - IDB file info (path, arch, base, size, hashes)
-- `ida://idb/segments` - Memory segments with permissions
-- `ida://idb/entrypoints` - Entry points (main, TLS callbacks, etc.)
-
-**UI State:**
-- `ida://cursor` - Current cursor position and function
-- `ida://selection` - Current selection range
-
-**Type Information:**
-- `ida://types` - All local types
-- `ida://structs` - All structures/unions
-- `ida://struct/{name}` - Structure definition with fields
-
-**Lookups:**
-- `ida://import/{name}` - Import details by name
-- `ida://export/{name}` - Export details by name
-- `ida://xrefs/from/{addr}` - Cross-references from address
-
-## Core Functions
-
-- `lookup_funcs(queries)`: Get function(s) by address or name (auto-detects, accepts list or comma-separated string).
-- `int_convert(inputs)`: Convert numbers to different formats (decimal, hex, bytes, ASCII, binary).
-- `list_funcs(queries)`: List functions (paginated, filtered).
-- `list_globals(queries)`: List global variables (paginated, filtered).
-- `imports(offset, count)`: List all imported symbols with module names (paginated).
-- `decompile(addr)`: Decompile function at the given address.
-- `disasm(addr)`: Disassemble function with full details (arguments, stack frame, etc).
-- `xrefs_to(addrs)`: Get all cross-references to address(es).
-- `xrefs_to_field(queries)`: Get cross-references to specific struct field(s).
-- `callees(addrs)`: Get functions called by function(s) at address(es).
-
-## Modification Operations
-
-- `add_bookmark(addr, name, prefix)`: Add or replace the IDA bookmark at an address; set `prefix=""` for no prefix.
-- `set_comments(items)`: Set comments at address(es) in both disassembly and decompiler views.
-- `patch_asm(items)`: Patch assembly instructions at address(es).
-- `declare_type(decls)`: Declare C type(s) in the local type library.
-- `define_func(items)`: Define function(s) at address(es). Optionally specify `end` for explicit bounds.
-- `define_code(items)`: Convert bytes to code instruction(s) at address(es).
-- `undefine(items)`: Undefine item(s) at address(es), converting back to raw bytes. Optionally specify `end` or `size`.
-
-## Memory Reading Operations
-
-- `get_bytes(addrs)`: Read raw bytes at address(es).
-- `get_int(queries)`: Read integer values using ty (i8/u64/i16le/i16be/etc).
-- `get_string(addrs)`: Read null-terminated string(s).
-- `get_global_value(queries)`: Read global variable value(s) by address or name (auto-detects, compile-time values).
-
-## Stack Frame Operations
-
-- `stack_frame(addrs)`: Get stack frame variables for function(s).
-- `declare_stack(items)`: Create stack variable(s) at specified offset(s).
-- `delete_stack(items)`: Delete stack variable(s) by name.
-
-## Structure Operations
-
-- `read_struct(queries)`: Read structure field values at specific address(es).
-- `search_structs(filter)`: Search structures by name pattern.
-
-## Debugger Operations (Extension)
-
-Debugger tools are hidden by default. Enable with `?ext=dbg` query parameter:
-
-```
-http://127.0.0.1:13337/mcp?ext=dbg
-```
-
-When using the stdio proxy, pass `--ida-rpc http://127.0.0.1:13337?ext=dbg` so the
-proxy forwards every request with the extension enabled.
-
-The debugger extension is intended for live analysis, not just "generate a
-Python script and hope it works". An MCP client can start or attach IDA's
-debugger, continue execution, wait for the next stop, inspect registers/memory,
-read CLI output, and decide the next action from the returned snapshot. The
-event-loop tools are driven by MCP calls and `ida_dbg.wait_for_next_event`; they
-do not install IDA debugger hooks or require an out-of-band controller.
-
-There are three complementary debugger APIs:
-
-1. **One-shot control** (`api_debug.py`): `dbg_start`, `dbg_continue`,
-   `dbg_step_into`, `dbg_run_to`, etc. Each call performs a single action and
-   returns immediately. Useful when you already know the next step.
-2. **Event-loop control** (`api_dbg_loop.py`): MCP polling primitives that drive
-   the debugger, block until the state changes, and return a structured
-   snapshot. Designed for LLM agents that decide the next action based on the
-   current state.
-3. **CLI I/O sessions** (`dbg_pty_*`): start an interactive command-line target
-   outside IDA, capture stdin/stdout/stderr through MCP, then attach IDA to the
-   returned PID. This is useful for crackmes and services where debugger console
-   I/O is unreliable.
-
-### One-shot control
-
-- `dbg_start()`: Start debugger session for the current target.
-- `dbg_exit()`: Exit debugger session.
-- `dbg_continue()`: Resume execution.
-- `dbg_run_to(addr)`: Run until an address is reached.
-- `dbg_step_into()`: Execute one instruction, stepping into calls.
-- `dbg_step_over()`: Execute one instruction, stepping over calls.
-
-### Event-loop control
-
-- `dbg_loop_init()`: Return the current MCP debugger event cursor.
-- `dbg_wait_event(cursor, timeout_ms)`: Wait for a debugger event without
-  resuming execution.
-- `dbg_continue_until_event(timeout_ms)`: Resume execution and wait for the
-  next debugger event or timeout.
-- `dbg_start_process_until_event(path, args, start_dir, timeout_ms)`: Start a
-  debugger process and wait for the startup event.
-- `dbg_start_current_file_until_event(timeout_ms)`: Start the currently loaded
-  input file and wait for the startup event.
-- `dbg_attach_process_until_event(pid, timeout_ms)`: Attach to a running
-  process and wait for the attach event.
-- `dbg_add_temp_bp_and_continue(addr, timeout_ms)`: Set a temporary breakpoint,
-  resume, and wait for the hit.
-- `dbg_get_snapshot(disasm_radius, include_registers, include_stack)`: Return
-  IP, function, nearby disassembly, GP registers, stack trace, and breakpoints.
-- `dbg_get_events(cursor, limit)`: Read events captured by prior debugger
-  wait/continue calls.
-- `dbg_diagnose(include_process_list)`: Check debugger readiness, process
-  options, and likely next steps without starting anything.
-- `dbg_get_process_options()`: Return IDA debugger launch options.
-- `dbg_set_process_options(path, args, start_dir, hostname, password, port)`:
-  Update IDA debugger launch options.
-- `dbg_list_processes()`: List processes visible to the selected debugger.
-- `dbg_modules()`: List loaded modules with base addresses.
-- `dbg_resolve(name)`: Resolve a symbol or address in the debugger address
-  space.
-- `dbg_read_around(addr, radius)`: Read memory around an address as hex/ASCII
-  chunks.
-
-### Interactive CLI I/O
-
-`dbg_pty_*` tools let you start a command-line target outside IDA, capture its
-stdin/stdout/stderr, and later attach IDA's debugger to the returned PID. This
-is the most reliable way to debug interactive CLI crackmes because the target
-runs in a normal subprocess rather than relying on IDA's debugger for I/O.
-
-These sessions are local to the IDA machine. For a remote Linux target, start
-the service on the remote host, use `dbg_set_process_options` to point IDA at
-the remote debugger server, then use `dbg_attach_process_until_event(pid)` or
-the one-shot attach flow.
-
-- `dbg_pty_start(path, args, start_dir)`: Start a CLI process and return its
-  PID and session ID.
-- `dbg_pty_send(session_id, data, is_hex)`: Send input to the process stdin.
-- `dbg_pty_read(session_id, max_bytes, timeout_ms, separate_streams, encode)`:
-  Read stdout/stderr from the process.
-- `dbg_pty_list()`: List active CLI sessions.
-- `dbg_pty_close(session_id)`: Close a CLI session and terminate the process.
-
-Typical CLI workflow:
-
-```text
-1. dbg_pty_start(path="/path/to/crackme", args="flag.txt")
-   -> {session_id, pid}
-2. (optionally) attach IDA debugger to pid
-3. dbg_pty_read(session_id, timeout_ms=500)
-   -> "Enter password:"
-4. dbg_pty_send(session_id, data="guess\n")
-5. dbg_pty_read(session_id, timeout_ms=500)
-   -> "Wrong/Right"
-6. dbg_pty_close(session_id)
-```
-
-### Breakpoints
-
-- `dbg_bps()`: List all breakpoints.
-- `dbg_add_bp(addrs)`: Add breakpoint(s).
-- `dbg_delete_bp(addrs)`: Delete breakpoint(s).
-- `dbg_toggle_bp(items)`: Enable/disable breakpoint(s).
-- `dbg_set_bp_condition(items)`: Set or clear breakpoint conditions.
-
-### Registers and Memory
-
-- `dbg_regs()`: All registers, current thread.
-- `dbg_regs_all()`: All registers, all threads.
-- `dbg_regs_remote(tids)`: All registers, specific thread(s).
-- `dbg_gpregs()`: GP registers, current thread.
-- `dbg_gpregs_remote(tids)`: GP registers, specific thread(s).
-- `dbg_regs_named(names)`: Named registers, current thread.
-- `dbg_regs_named_remote(tid, names)`: Named registers, specific thread.
-- `dbg_stacktrace()`: Call stack with module/symbol info.
-- `dbg_read(regions)`: Read memory from debugged process.
-- `dbg_write(regions)`: Write memory to debugged process.
-
-## Advanced Analysis Operations
-
-- `py_eval(code)`: Execute arbitrary Python code in IDA context (returns dict with result/stdout/stderr, supports Jupyter-style evaluation).
-- `analyze_funcs(addrs)`: Comprehensive function analysis (decompilation, assembly, xrefs, callees, callers, strings, constants, basic blocks).
-
-## Pattern Matching & Search
-
-- `find_regex(queries)`: Search strings with case-insensitive regex (paginated).
-- `find_bytes(patterns, limit=1000, offset=0)`: Find byte pattern(s) in binary (e.g., "48 8B ?? ??"). Max limit: 10000.
-- `find_insns(sequences, limit=1000, offset=0)`: Find instruction sequence(s) in code. Max limit: 10000.
-- `find(type, targets, limit=1000, offset=0)`: Advanced search (immediate values, strings, data/code references). Max limit: 10000.
-
-## Control Flow Analysis
-
-- `basic_blocks(addrs)`: Get basic blocks with successors and predecessors.
-
-## Type Operations
-
-- `set_type(edits)`: Apply type(s) to functions, globals, locals, or stack variables.
-- `infer_types(addrs)`: Infer types at address(es) using Hex-Rays or heuristics.
-
-## Export Operations
-
-- `export_funcs(addrs, format)`: Export function(s) in specified format (json, c_header, or prototypes).
-
-## Graph Operations
-
-- `callgraph(roots, max_depth)`: Build call graph from root function(s) with configurable depth.
-
-## Batch Operations
-
-- `rename(batch)`: Unified batch rename operation for functions, globals, locals, and stack variables (accepts dict with optional `func`, `data`, `local`, `stack` keys).
-- `patch(patches)`: Patch multiple byte sequences at once.
-- `put_int(items)`: Write integer values using ty (i8/u64/i16le/i16be/etc).
-
-**Key Features:**
-
-- **Type-safe API**: All functions use strongly-typed parameters with TypedDict schemas for better IDE support and LLM structured outputs
-- **Batch-first design**: Most operations accept both single items and lists
-- **Consistent error handling**: All batch operations return `[{..., error: null|string}, ...]`
-- **Cursor-based pagination**: Search functions return `cursor: {next: offset}` or `{done: true}` (default limit: 1000, enforced max: 10000 to prevent token overflow)
-- **Performance**: Strings are cached with MD5-based invalidation to avoid repeated `build_strlist` calls in large projects
-
-## Development
-
-Adding new features is a super easy and streamlined process. All you have to do is add a new `@tool` function to the modular API files in `src/ida_pro_mcp/ida_mcp/api_*.py` and your function will be available in the MCP server without any additional boilerplate! Below is a video where I add the `get_metadata` function in less than 2 minutes (including testing):
-
-https://github.com/user-attachments/assets/951de823-88ea-4235-adcb-9257e316ae64
-
-To test the MCP server itself:
-
-```sh
-npx -y @modelcontextprotocol/inspector
-```
-
-This will open a web interface at http://localhost:5173 and allow you to interact with the MCP tools for testing.
-
-For testing I create a symbolic link to the IDA plugin and then POST a JSON-RPC request directly to `http://localhost:13337/mcp`. After [enabling symbolic links](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) you can run the following command:
-
-```sh
+```bash
+uv sync
 uv run ida-pro-mcp --install
 ```
 
-Generate the changelog of direct commits to `main`:
+`--install` copies the IDA plugin to `%APPDATA%\Hex-Rays\IDA Pro\plugins\` (Windows) or `~/.idapro/plugins/` (macOS/Linux) and optionally writes MCP client configuration.
 
-```sh
+> **Important**: After installing, completely restart IDA Pro so the new plugin loads. Some MCP clients also run in the background and need to be fully quit and restarted.
+
+### Install for a specific MCP client
+
+```bash
+uv run ida-pro-mcp --install claude
+uv run ida-pro-mcp --install cursor,vscode
+```
+
+Use `--scope project` for project-level config or `--scope global` for user-level config.
+
+### Print configuration without installing
+
+```bash
+uv run ida-pro-mcp --config
+```
+
+### Uninstall
+
+```bash
+uv run ida-pro-mcp --uninstall
+```
+
+### Headless `idalib-mcp`
+
+`idalib-mcp` requires the `idapro` package and an activated `idalib` installation. Activate it once with the script shipped by your IDA version, for example:
+
+```bash
+# Windows
+uv run "C:\Program Files\IDA Professional 9.2\idalib\python\py-activate-idalib.py"
+
+# macOS
+uv run "/Applications/IDA Professional 9.2.app/Contents/MacOS/idalib/python/py-activate-idalib.py"
+```
+
+Then run the headless supervisor:
+
+```bash
+# stdio mode (most clients)
+uv run idalib-mcp --stdio
+
+# HTTP mode with an initial binary
+uv run idalib-mcp --host 127.0.0.1 --port 8745 path/to/executable
+
+# HTTP mode without an initial binary
+uv run idalib-mcp --host 127.0.0.1 --port 8745
+```
+
+## Usage
+
+### Start the IDA Pro plugin
+
+In IDA Pro, open a binary and either:
+
+- Wait for autostart (if enabled), or
+- Use `Edit → Plugins → MCP` (hotkey `Ctrl-Alt-M`).
+
+The plugin registers the running instance locally; `ida-pro-mcp` auto-discovers it.
+
+### Connect with an MCP client
+
+After installing, your client will run `ida-pro-mcp` over stdio. The proxy discovers the IDA instance and forwards every tool call. If you prefer HTTP/SSE, run:
+
+```bash
+uv run ida-pro-mcp --transport http://127.0.0.1:8744/sse
+```
+
+### Headless session model
+
+`idalib-mcp` is a supervisor, not a worker. It spawns detached worker processes and can adopt already-running GUI or worker instances. There is no `idb_close` tool; sessions stay alive until idle TTL expires or the user closes the GUI window.
+
+`idb_open` backend selection (`mode` parameter):
+
+- `prefer_headless` (default): spawn/adopt an idalib worker.
+- `force_headless`: spawn/adopt a worker, never adopt a GUI.
+- `prefer_gui`: adopt a GUI if one has the file open; otherwise spawn a worker.
+- `force_gui`: adopt a GUI if one has the file open; otherwise launch a new IDA GUI process.
+
+Management tools:
+
+- `idb_open(input_path, mode="prefer_headless", run_auto_analysis=True, build_caches=True, init_hexrays=True, preferred_session_id="", idle_ttl_sec=600)` — open/adopt a session.
+- `idb_list()` — list open sessions and running GUI instances.
+- `idb_save(session_id, path="")` — save an IDB.
+- `server_health(database=<id>)` — per-session health.
+
+Worker controls:
+
+- `--max-workers N` (default `4`, `0` = unlimited)
+- `IDA_MCP_MAX_WORKERS` environment variable
+
+## Transports
+
+### `ida-pro-mcp`
+
+- **stdio** (default) — what most MCP clients expect.
+- **HTTP / SSE** — pass a URL to `--transport`, e.g. `http://127.0.0.1:8744/sse`.
+
+### `idalib-mcp`
+
+- **HTTP** (default) — `--host`/`--port`.
+- **stdio** — `--stdio`.
+
+### Unsafe tools and extensions
+
+Some tools are marked unsafe and are only available when explicitly enabled:
+
+- `idalib-mcp`: pass `--unsafe`.
+- `ida-pro-mcp`: the proxy forwards whatever the running IDA instance exposes.
+
+Debugger tools belong to the `dbg` extension and are hidden by default. Enable them with the `?ext=dbg` query parameter:
+
+```bash
+# Direct HTTP
+http://127.0.0.1:13337/mcp?ext=dbg
+
+# Through the stdio proxy
+uv run ida-pro-mcp --ida-rpc http://127.0.0.1:13337?ext=dbg
+```
+
+## Tool Reference
+
+The server exposes the tools below. Schemas (parameter names, types, descriptions) are available from any MCP client via `tools/list`.
+
+### Core IDB metadata (`api_core`)
+
+- `server_health()` — server status, uptime, current IDB path.
+- `lookup_funcs(queries)` — get function(s) by address or name.
+- `int_convert(inputs)` — convert numbers between decimal, hex, binary, ASCII, etc.
+- `list_funcs(queries)` — list functions with filtering and pagination.
+- `func_query(queries)` — richer function query (size, type, name filters).
+- `list_globals(queries)` — list global variables.
+- `entity_query(queries)` — generic query over functions, globals, imports, strings, names.
+- `imports(offset, count)` — list imported symbols.
+- `imports_query(queries)` — richer import query.
+- `idb_save()` — save the current IDB.
+
+### Analysis (`api_analysis`)
+
+- `decompile(addr)` — decompile a function.
+- `disasm(addr)` — disassemble a function.
+- `analyze_function(addr)` — compact single-function analysis.
+- `analyze_batch(queries)` — comprehensive per-function analysis.
+- `analyze_component(addrs)` — analyze a group of related functions.
+- `func_profile(queries)` — function metrics and sampled details.
+- `survey_binary()` — compact overview of the binary.
+- `basic_blocks(addrs)` — basic blocks of function(s).
+- `callees(addrs)` — functions called by function(s).
+- `xrefs_to(addrs)` — cross-references to address(es).
+- `xref_query(queries)` — generic xref query.
+- `xrefs_to_field(queries)` — xrefs to struct field(s).
+- `callgraph(roots)` — bounded call graph from root function(s).
+- `trace_data_flow(addr)` — follow cross-references forward or backward.
+- `search_text(pattern)` — search rendered disassembly/comments.
+- `export_funcs(addrs, format)` — export function data (json, c_header, prototypes).
+
+### Search & patterns
+
+- `find_regex(pattern)` — case-insensitive regex search in strings.
+- `find_bytes(patterns)` — byte pattern search (e.g. `48 8B ?? ??`).
+- `find(type, targets)` — search strings, immediates, data/code references.
+- `find_xref_signatures(addrs)` — create signatures for code that references an address.
+- `insn_query(queries)` — query instructions by mnemonic/operand filters.
+
+### Memory (`api_memory`)
+
+- `get_bytes(regions)` — read raw bytes.
+- `get_int(queries)` — read integers (`u8`, `i32le`, `u64be`, etc.).
+- `get_string(addrs)` — read null-terminated strings.
+- `get_global_value(queries)` — read global values by address or name.
+- `patch(patches)` — patch bytes.
+- `put_int(items)` — write integers.
+
+### Modification (`api_modify`)
+
+- `set_comments(items)` — set comments.
+- `append_comments(items)` — append comments.
+- `add_bookmark(addr, name, prefix)` — add IDA bookmarks.
+- `rename(batch)` — batch rename functions, globals, locals, stack vars.
+- `patch_asm(items)` — patch assembly instructions.
+- `declare_type(decls)` — declare C types.
+- `set_type(edits)` — apply types to functions/globals/locals/stack.
+- `type_apply_batch(batch)` — batch type edits.
+- `infer_types(addrs)` — infer types at address(es).
+- `define_func(items)` — define functions.
+- `define_code(items)` — convert bytes to code.
+- `undefine(items)` — undefine items.
+- `force_recompile(addrs)` — invalidate decompiler cache.
+- `set_op_type(items)` — set operand type.
+- `make_data(items)` — create typed data symbols.
+
+### Stack (`api_stack`)
+
+- `stack_frame(addrs)` — get stack variables.
+- `declare_stack(items)` — create stack variables.
+- `delete_stack(items)` — delete stack variables.
+
+### Types (`api_types`)
+
+- `read_struct(queries)` — read struct fields at address(es).
+- `search_structs(filter)` — search structures by name.
+- `type_query(queries)` — query local types.
+- `type_inspect(queries)` — inspect named types.
+- `enum_upsert(queries)` — create or update enums.
+
+### Signatures (`api_sigmaker`)
+
+- `make_signature(addrs)` — create byte signatures for addresses.
+- `make_signature_for_function(addrs)` — create signatures for function entries.
+- `make_signature_for_range(start, end)` — create signatures for a range.
+
+### Python execution (`api_python`)
+
+- `py_eval(code)` — execute Python in IDA context.
+- `py_exec_file(file_path)` — execute a Python script file in IDA context.
+
+### Composite / diff (`api_composite`)
+
+- `diff_before_after(addr, action, action_args)` — rename/type/comment with before/after decompilation.
+
+## Debugger Extension
+
+Debugger tools are in the `dbg` extension group and require `?ext=dbg` (see [Transports](#transports)).
+
+The extension provides three complementary APIs:
+
+1. **One-shot control** — single actions that return immediately.
+2. **Event-loop control** — polling primitives that block until debugger state changes and return a structured snapshot.
+3. **Interactive CLI I/O** — start a target outside IDA, capture stdin/stdout/stderr, then attach IDA to the PID.
+
+### One-shot control
+
+- `dbg_start()` / `dbg_exit()` — start or exit debugger session.
+- `dbg_continue()` / `dbg_run_to(addr)` / `dbg_step_into()` / `dbg_step_over()` — execution control.
+- `dbg_status()` — current debugger lifecycle state.
+- `dbg_bps()` / `dbg_add_bp(addrs)` / `dbg_delete_bp(addrs)` / `dbg_toggle_bp(items)` / `dbg_set_bp_condition(items)` — breakpoints.
+- `dbg_regs()` / `dbg_regs_all()` / `dbg_regs_remote(tids)` / `dbg_gpregs()` / `dbg_stacktrace()` — registers and stack.
+- `dbg_read(regions)` / `dbg_write(regions)` / `dbg_read_around(addr)` — memory.
+- `dbg_list_processes()` / `dbg_modules()` / `dbg_resolve(name)` — processes and modules.
+- `dbg_get_process_options()` / `dbg_set_process_options(...)` — launch options.
+
+### Event-loop control
+
+- `dbg_loop_init()` — get the debugger event cursor.
+- `dbg_wait_event(cursor, timeout_ms)` — wait for an event without resuming.
+- `dbg_continue_until_event(timeout_ms)` — resume and wait for the next event.
+- `dbg_start_process_until_event(path, args, start_dir, timeout_ms)` — start and wait.
+- `dbg_start_current_file_until_event(timeout_ms)` — start current file and wait.
+- `dbg_attach_process_until_event(pid, timeout_ms)` — attach and wait.
+- `dbg_add_temp_bp_and_continue(addr, timeout_ms)` — temporary breakpoint + continue.
+- `dbg_get_snapshot(...)` — current IP, disassembly, registers, stack trace.
+- `dbg_get_events(cursor, limit)` — read captured events.
+- `dbg_diagnose(include_process_list)` — readiness check without starting anything.
+
+### Interactive CLI I/O
+
+- `dbg_pty_start(path, args, start_dir)` — start a CLI process.
+- `dbg_pty_send(session_id, data)` — send to stdin.
+- `dbg_pty_read(session_id, max_bytes, timeout_ms)` — read stdout/stderr.
+- `dbg_pty_list()` — list sessions.
+- `dbg_pty_close(session_id)` — terminate session.
+
+Typical workflow:
+
+```text
+1. dbg_pty_start("/path/to/crackme", args="flag.txt") → {session_id, pid}
+2. attach IDA debugger to pid
+3. dbg_pty_read(session_id, timeout_ms=500) → "Enter password:"
+4. dbg_pty_send(session_id, data="guess\n")
+5. dbg_pty_read(session_id, timeout_ms=500) → response
+6. dbg_pty_close(session_id)
+```
+
+## MCP Resources
+
+Read-only browsable state:
+
+- `ida://idb/metadata` — IDB file info (path, arch, base, size, hashes).
+- `ida://idb/segments` — memory segments with permissions.
+- `ida://idb/entrypoints` — entry points.
+- `ida://cursor` — current cursor position and function.
+- `ida://selection` — current selection range.
+- `ida://types` — all local types.
+- `ida://structs` — all structures/unions.
+- `ida://struct/{name}` — structure definition.
+- `ida://import/{name}` — import details.
+- `ida://export/{name}` — export details.
+- `ida://xrefs/from/{addr}` — cross-references from an address.
+
+## Prompt Engineering
+
+LLMs can hallucinate, especially with integer/byte conversions. A minimal prompt:
+
+```md
+Your task is to analyze a crackme in IDA Pro. Use the MCP tools to retrieve information.
+
+- Inspect the decompilation and add comments with your findings.
+- Rename variables and functions to sensible names.
+- Correct variable and argument types where necessary (especially pointers and arrays).
+- If more detail is needed, inspect the disassembly and add comments.
+- NEVER convert number bases yourself. Use the `int_convert` MCP tool.
+- Do not brute force; derive solutions from analysis and simple Python scripts.
+- Create a report.md with your findings and steps taken.
+- When you find a solution, ask the user for feedback with the password you found.
+```
+
+Another systematic prompt:
+
+```md
+Your task is to create a complete reverse engineering analysis.
+
+1. **Decompilation Analysis**: inspect decompiler output, add detailed comments, focus on actual functionality.
+2. **Improve Readability**: rename variables/functions, correct types.
+3. **Deep Dive**: examine disassembly when needed, document low-level behaviors.
+4. **Constraints**: never convert number bases yourself — use `int_convert`; derive conclusions from actual analysis.
+5. **Documentation**: produce RE/*.md files with findings and methodology.
+```
+
+### Tips for better accuracy
+
+- Tell the LLM to use `int_convert` instead of converting numbers itself.
+- For heavy math, consider pairing with a dedicated math MCP.
+- Deobfuscate first where possible: string encryption, import hashing, control-flow flattening, code encryption, anti-decompilation tricks.
+- Use Lumina/FLIRT to resolve open-source library code and C++ STL before analysis.
+
+## Development
+
+Adding a tool is simple: add a new `@tool` function to one of the `src/ida_pro_mcp/ida_mcp/api_*.py` modules and it is automatically registered.
+
+Run the MCP inspector for interactive testing:
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+Run the headless test harness:
+
+```bash
+uv run ida-mcp-test tests/crackme03.elf -q
+uv run ida-mcp-test tests/typed_fixture.elf -q
+```
+
+Measure coverage across both fixtures:
+
+```bash
+uv run coverage erase
+uv run coverage run -m ida_pro_mcp.test tests/crackme03.elf -q
+uv run coverage run --append -m ida_pro_mcp.test tests/typed_fixture.elf -q
+uv run coverage report --show-missing
+```
+
+Generate a changelog of direct commits:
+
+```bash
 git log --first-parent --no-merges 1.2.0..main "--pretty=- %s"
 ```
+
+## Acknowledgments
+
+Original concept and implementation by [mrexodia](https://github.com/mrexodia), [can1357](https://github.com/can1357), and contributors. The headless `idalib` feature was contributed by [Willi Ballenthin](https://github.com/williballenthin).
